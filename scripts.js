@@ -543,6 +543,7 @@
     finalEmoji.textContent = "🎉";
     finalTitle.textContent = "Você venceu!";
     finalDesc.textContent = "Mande o print para receber o prêmio.";
+    centerFinalActionButtons();
     finalOverlay.classList.remove("hidden");
     goHomeBtn.focus();
   }
@@ -550,12 +551,27 @@
     finalEmoji.textContent = "😞";
     finalTitle.textContent = "Você foi derrotado.";
     finalDesc.textContent = `Placar final: ${wins}–${losses}${draws ? ` (Empates: ${draws})` : ""}. Volte ao início e tente novamente.`;
+    centerFinalActionButtons();
     finalOverlay.classList.remove("hidden");
     goHomeBtn.focus();
   }
   function hideFinalOverlay() {
     finalOverlay.classList.add("hidden");
     closeGoHomeConfirm();
+  }
+
+    // Centralize final overlay action buttons with spacing
+  function centerFinalActionButtons() {
+    // Find the row that contains the close button; this is the container for action buttons
+    const row = finalOverlay.querySelector('#closeFinalBtn')?.parentElement;
+    if (!row || !row.classList.contains('flex')) return;
+    // Remove any conflicting justification classes
+    row.classList.remove('justify-end', 'justify-between', 'justify-start');
+    // Add center justification and ensure spacing between buttons
+    row.classList.add('justify-center');
+    if (!row.classList.contains('gap-2')) {
+      row.classList.add('gap-2');
+    }
   }
   function endIfCompleted() {
     if (roundsPlayed < TOTAL_ROUNDS) return;
