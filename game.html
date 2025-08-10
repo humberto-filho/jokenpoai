@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>JokenpoAI — Jogo</title>
+
+  <!-- Config do Tailwind para aproximar o design do shadcn/ui -->
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      darkMode: ["class"],
+      theme: {
+        extend: {
+          colors: {
+            border: "hsl(var(--border))",
+            input: "hsl(var(--input))",
+            ring: "hsl(var(--ring))",
+            background: "hsl(var(--background))",
+            foreground: "hsl(var(--foreground))",
+            primary: {
+              DEFAULT: "hsl(var(--primary))",
+              foreground: "hsl(var(--primary-foreground))",
+            },
+            secondary: {
+              DEFAULT: "hsl(var(--secondary))",
+              foreground: "hsl(var(--secondary-foreground))",
+            },
+            destructive: {
+              DEFAULT: "hsl(var(--destructive))",
+              foreground: "hsl(var(--destructive-foreground))",
+            },
+            muted: {
+              DEFAULT: "hsl(var(--muted))",
+              foreground: "hsl(var(--muted-foreground))",
+            },
+            accent: {
+              DEFAULT: "hsl(var(--accent))",
+              foreground: "hsl(var(--accent-foreground))",
+            },
+            popover: {
+              DEFAULT: "hsl(var(--popover))",
+              foreground: "hsl(var(--popover-foreground))",
+            },
+            card: {
+              DEFAULT: "hsl(var(--card))",
+              foreground: "hsl(var(--card-foreground))",
+            },
+          },
+          borderRadius: {
+            lg: "var(--radius)",
+            md: "calc(var(--radius) - 2px)",
+            sm: "calc(var(--radius) - 4px)",
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Variáveis de tema + helpers no estilo shadcn -->
+  <style>
+    :root {
+      --background: 0 0% 100%;
+      --foreground: 222.2 47.4% 11.2%;
+      --muted: 210 40% 96.1%;
+      --muted-foreground: 215.4 16.3% 46.9%;
+      --accent: 210 40% 96.1%;
+      --accent-foreground: 222.2 47.4% 11.2%;
+      --popover: 0 0% 100%;
+      --popover-foreground: 222.2 47.4% 11.2%;
+      --border: 214.3 31.8% 91.4%;
+      --input: 214.3 31.8% 91.4%;
+      --card: 0 0% 100%;
+      --card-foreground: 222.2 47.4% 11.2%;
+      --primary: 222.2 47.4% 11.2%;
+      --primary-foreground: 210 40% 98%;
+      --secondary: 210 40% 96.1%;
+      --secondary-foreground: 222.2 47.4% 11.2%;
+      --destructive: 0 84.2% 60.2%;
+      --destructive-foreground: 210 40% 98%;
+      --ring: 215 20.2% 65.1%;
+      --radius: 0.5rem;
+    }
+    .dark {
+      --background: 224 71% 4%;
+      --foreground: 213 31% 91%;
+      --muted: 223 47% 11%;
+      --muted-foreground: 215.4 16.3% 56.9%;
+      --accent: 216 34% 17%;
+      --accent-foreground: 210 40% 98%;
+      --popover: 224 71% 4%;
+      --popover-foreground: 215 20.2% 65.1%;
+      --border: 216 34% 17%;
+      --input: 216 34% 17%;
+      --card: 224 71% 4%;
+      --card-foreground: 213 31% 91%;
+      --primary: 210 40% 98%;
+      --primary-foreground: 222.2 47.4% 11.2%;
+      --secondary: 222.2 47.4% 11.2%;
+      --secondary-foreground: 210 40% 98%;
+      --destructive: 0 62.8% 30.6%;
+      --destructive-foreground: 210 40% 98%;
+      --ring: 216 34% 17%;
+    }
+    .ring-offset-background { --tw-ring-offset-color: hsl(var(--background)); }
+    .bg-background { background-color: hsl(var(--background)); }
+    .text-foreground { color: hsl(var(--foreground)); }
+    .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+    .bg-card { background-color: hsl(var(--card)); }
+    .text-card-foreground { color: hsl(var(--card-foreground)); }
+    .hover\:bg-accent:hover { background-color: hsl(var(--accent)); }
+    .hover\:text-accent-foreground:hover { color: hsl(var(--accent-foreground)); }
+    .bg-muted { background-color: hsl(var(--muted)); }
+    .bg-foreground { background-color: hsl(var(--foreground)); }
+  </style>
+</head>
+
+<body class="bg-background text-foreground min-h-screen antialiased">
+  <main class="grid min-h-screen place-items-center p-6">
+    <div class="w-full max-w-md rounded-lg border bg-card p-6 shadow-sm">
+      <header class="mb-6 text-center">
+        <h1 class="text-2xl font-semibold tracking-tight text-card-foreground">
+          JokenpoAI <span aria-hidden="true">✂️📄🪨</span>
+        </h1>
+        <p id="hello" class="mt-1 text-sm text-muted-foreground"></p>
+      </header>
+
+      <!-- Progresso (50 partidas) -->
+      <section class="mb-5">
+        <div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Progresso</span>
+          <span id="progressLabel">0 / 50</span>
+        </div>
+        <div class="relative h-2 w-full overflow-hidden rounded-full border border-input bg-muted">
+          <div id="progressBar"
+               class="h-full w-0 bg-foreground transition-all"
+               role="progressbar"
+               aria-label="Progresso das partidas"
+               aria-valuemin="0"
+               aria-valuemax="50"
+               aria-valuenow="0"
+               style="width: 0%;"></div>
+        </div>
+      </section>
+
+      <!-- Grade de botões -->
+      <section class="mb-5">
+        <div class="grid grid-cols-3 gap-3">
+          <!-- Tesoura -->
+          <button
+            type="button"
+            data-move="tesoura"
+            class="group h-24 rounded-md border border-input bg-background px-2 py-2 text-sm font-medium
+                   transition-colors hover:bg-accent hover:text-accent-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background
+                   disabled:pointer-events-none disabled:opacity-50 w-full flex flex-col items-center justify-center gap-1"
+          >
+            <span class="text-2xl" aria-hidden="true">✂️</span>
+            <span>Tesoura</span>
+          </button>
+
+          <!-- Pedra -->
+          <button
+            type="button"
+            data-move="pedra"
+            class="group h-24 rounded-md border border-input bg-background px-2 py-2 text-sm font-medium
+                   transition-colors hover:bg-accent hover:text-accent-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background
+                   disabled:pointer-events-none disabled:opacity-50 w-full flex flex-col items-center justify-center gap-1"
+          >
+            <span class="text-2xl" aria-hidden="true">🪨</span>
+            <span>Pedra</span>
+          </button>
+
+          <!-- Papel -->
+          <button
+            type="button"
+            data-move="papel"
+            class="group h-24 rounded-md border border-input bg-background px-2 py-2 text-sm font-medium
+                   transition-colors hover:bg-accent hover:text-accent-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background
+                   disabled:pointer-events-none disabled:opacity-50 w-full flex flex-col items-center justify-center gap-1"
+          >
+            <span class="text-2xl" aria-hidden="true">📄</span>
+            <span>Papel</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Resultado -->
+      <section aria-live="polite" class="space-y-3">
+        <div id="choices" class="text-sm text-muted-foreground"></div>
+
+        <div id="result"
+             class="hidden rounded-md border p-3 text-sm font-medium">
+          <!-- conteúdo preenchido via JS -->
+        </div>
+      </section>
+
+      <footer class="mt-6 flex items-center justify-between">
+        <a href="index.html"
+           class="text-sm underline underline-offset-4 hover:no-underline">Voltar</a>
+
+        <!-- Wrapper para posicionar o popover de confirmação (Reiniciar) -->
+        <div class="relative">
+          <button id="resetBtn"
+            class="text-sm rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+            Reiniciar
+          </button>
+
+          <!-- Popover de dupla confirmação (Reiniciar) -->
+          <div id="confirmBox"
+               class="absolute right-0 top-10 z-10 hidden w-64 rounded-md border bg-card p-3 text-sm shadow-md">
+            <p id="confirmText" class="mb-2">Tem certeza que deseja reiniciar?</p>
+            <div class="flex items-center justify-center gap-2">
+              <button id="cancelConfirmBtn"
+                class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                Cancelar
+              </button>
+              <button id="confirmBtn"
+                class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                Confirmar (1/2)
+              </button>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </main>
+
+  <!-- Overlay final (mostrado quando o jogador vence no total) -->
+  <div id="finalOverlay" class="fixed inset-0 z-50 hidden bg-black/40 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true"
+         class="relative mx-auto mt-24 w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg">
+      <div id="finalEmoji" class="mb-3 text-center text-4xl" aria-hidden="true">🎉</div>
+      <h2 id="finalTitle" class="mb-1 text-center text-lg font-semibold text-card-foreground">Você venceu!</h2>
+      <p id="finalDesc" class="mb-4 text-center text-sm text-muted-foreground">
+        Mande o print para receber o prêmio.
+      </p>
+      <div class="flex items-center justify-end gap-2">
+        <button id="closeFinalBtn"
+          class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+          Fechar
+        </button>
+
+        <div class="relative">
+          <button id="goHomeBtn"
+            class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+            Voltar ao início
+          </button>
+
+          <!-- Popover de dupla confirmação (Voltar ao início) -->
+        <div id="goHomeConfirmBox"
+        class="absolute left-1/2 -translate-x-1/2 top-10 z-10 hidden w-64 rounded-md border bg-card p-3 text-sm shadow-md">
+          <p id="goHomeConfirmText" class="mb-2">Tem certeza que deseja voltar ao início?</p>
+            <div class="flex items-center justify-end gap-2">
+              <button id="goHomeCancel"
+                class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                Cancelar
+              </button>
+              <button id="goHomeConfirm"
+                class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                Confirmar (1/2)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Todo o JS do jogo está em scripts.js -->
+  <script src="scripts.js" defer></script>
+</body>
+</html>
