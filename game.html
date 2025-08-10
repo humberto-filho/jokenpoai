@@ -232,50 +232,71 @@
     </div>
   </main>
 
-  <!-- Overlay final (mostrado quando o jogador vence no total) -->
-  <div id="finalOverlay" class="fixed inset-0 z-50 hidden bg-black/40 backdrop-blur-sm">
+    <!-- Overlay final (mostrado quando o jogador vence ou perde) -->
+    <div id="finalOverlay" class="fixed inset-0 z-50 hidden bg-black/40 backdrop-blur-sm">
     <div role="dialog" aria-modal="true"
-         class="relative mx-auto mt-24 w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg">
-      <div id="finalEmoji" class="mb-3 text-center text-4xl" aria-hidden="true">🎉</div>
-      <h2 id="finalTitle" class="mb-1 text-center text-lg font-semibold text-card-foreground">Você venceu!</h2>
-      <p id="finalDesc" class="mb-4 text-center text-sm text-muted-foreground">
+        class="relative mx-auto mt-24 w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg">
+        <div id="finalEmoji" class="mb-3 text-center text-4xl" aria-hidden="true">🎉</div>
+        <h2 id="finalTitle" class="mb-1 text-center text-lg font-semibold text-card-foreground">Você venceu!</h2>
+        <p id="finalDesc" class="mb-4 text-center text-sm text-muted-foreground">
         Mande o print para receber o prêmio.
-      </p>
-      <div class="flex items-center justify-end gap-2">
+        </p>
+
+        <!-- AÇÕES CENTRALIZADAS -->
+        <div class="flex items-center justify-center gap-2">
+        <!-- Botão fechar (mantém o id que o scripts.js já usa) -->
         <button id="closeFinalBtn"
-          class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
-          Fechar
+            class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+            Fechar
         </button>
 
-        <div class="relative">
-          <button id="goHomeBtn"
+        <!-- Novo: Reiniciar dentro do modal.
+            Ele fecha o modal e aciona o mesmo fluxo de "Reiniciar" (com dupla confirmação). -->
+        <button id="replayInModal"
             class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
-            Voltar ao início
-          </button>
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            onclick="(function(){
+            var close = document.getElementById('closeFinalBtn');
+            if (close) close.click();             // fecha o modal
+            setTimeout(function(){
+                var rb = document.getElementById('resetBtn');
+                if (rb) rb.click();                 // abre a dupla confirmação de Reiniciar
+            }, 0);
+            })();">
+            Reiniciar
+        </button>
 
-          <!-- Popover de dupla confirmação (Voltar ao início) -->
-        <div id="goHomeConfirmBox"
-        class="absolute left-1/2 -translate-x-1/2 top-10 z-10 hidden w-64 rounded-md border bg-card p-3 text-sm shadow-md">
-          <p id="goHomeConfirmText" class="mb-2">Tem certeza que deseja voltar ao início?</p>
+        <!-- Voltar ao início + popover centralizado -->
+        <div class="relative">
+            <button id="goHomeBtn"
+            class="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+            Voltar ao início
+            </button>
+
+            <!-- Popover de dupla confirmação (centralizado sob o botão) -->
+            <div id="goHomeConfirmBox"
+                class="absolute left-1/2 -translate-x-1/2 top-10 z-10 hidden w-64 rounded-md border bg-card p-3 text-sm shadow-md">
+            <p id="goHomeConfirmText" class="mb-2">Tem certeza que deseja voltar ao início?</p>
             <div class="flex items-center justify-end gap-2">
-              <button id="goHomeCancel"
+                <button id="goHomeCancel"
                 class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
                 Cancelar
-              </button>
-              <button id="goHomeConfirm"
+                </button>
+                <button id="goHomeConfirm"
                 class="rounded-md border bg-background px-3 py-1.5 hover:bg-accent hover:text-accent-foreground
-                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
                 Confirmar (1/2)
-              </button>
+                </button>
             </div>
-          </div>
+            </div>
         </div>
-      </div>
+        </div>
     </div>
-  </div>
+    </div>
+
 
   <!-- Todo o JS do jogo está em scripts.js -->
   <script src="scripts.js" defer></script>
