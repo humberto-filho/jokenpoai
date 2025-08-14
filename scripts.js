@@ -2,9 +2,123 @@
 // Recursos: padrões de repetição, transições 1ª/2ª ordem, pós-resultado,
 // sinais do mouse (intenção/hesitação), ε-greedy com progressão, e ajuste
 // de pesos por desempenho dos preditores (multiplicative weights).
+//
+// >>> ADIÇÃO: Anti-"aprendizado" do jogador
+// Introduz variação diária (por nome + data) nos parâmetros de exploração,
+// limiares e pesos, via hash determinístico + PRNG seeded.
+//
 
 (() => {
   "use strict";
+
+  // ---------- Util: obter nome do jogador e chave diária ----------
+  function getPlayerNameFromContext() {
+    try {
+      const params = new URLSearchParams(location.search);
+      const fromQuery = (params.get("name") || "").trim();
+      if (fromQuery) return fromQuery;
+      const ls = localStorage.getItem("playerName");
+      return (ls || "").trim();
+    } catch {
+      return "";
+    }
+  }
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  function localYMD(d) {
+    // YYYY-MM-DD no fuso local do navegador
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+
+  // Hash de string (xmur3) e PRNG (mulberry32) — curtos e determinísticos
+  function xmur3(str) {
+    let h = 1779033703 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return function () {
+      h = Math.imul(h ^ (h >>> 16), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return (h ^= h >>> 16) >>> 0;
+    };
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0;
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const PLAYER_NAME = getPlayerNameFromContext() || "anon";
+  const DAILY_KEY = localYMD(new Date()) + "#" + PLAYER_NAME.toLowerCase();
+  const SEED = xmur3(DAILY_KEY)();
+  const rng = mulberry32(SEED); // PRNG determinístico p/ gerar variantes
+
+  // ---------- Variantes do dia (RVAR): aleatorizam parâmetros-chave ----------
+  function randIn(a, b) { return a + (b - a) * rng(); }
+  function randPick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+  // Monta multiplicadores por preditor para bagunçar "metagame" diário
+  const PREDICTORS = ["freq","hover","trans1","trans2","post","repeat","pivot","ngram"];
+  const wMult = {};
+  for (const k of PREDICTORS) wMult[k] = randIn(0.85, 1.15); // ±15%
+
+  // Multiplicadores leves na escala de desempenho por preditor (±8%)
+  const perfScaleMult = {};
+  for (const k of PREDICTORS) perfScaleMult[k] = randIn(0.92, 1.08);
+
+  // Epsilons por nível com ruído controlado
+  const eps0 = randIn(0.26, 0.34); // base 0.30 ±0.04
+  const eps1 = randIn(0.16, 0.24); // base 0.20 ±0.04
+  const eps2 = randIn(0.10, 0.16); // base 0.12 ±0.04
+  const eps3 = randIn(0.06, 0.10); // base 0.08 ±0.02
+
+  // Jitter global/por rodada para ε efetivo (pequena respiração)
+  const epsGlobalScale = randIn(0.9, 1.1); // ±10%
+  function epsilonEffective(baseEps) {
+    // Pequena variação por rodada (determinística no dia)
+    const perRoundJitter = randIn(0.95, 1.05);
+    return Math.max(0.03, Math.min(0.6, baseEps * epsGlobalScale * perRoundJitter));
+  }
+
+  // Threshold de "empate técnico" para amostragem proporcional (antes 0.05)
+  const tieClose = randIn(0.035, 0.085);
+
+  // Boost do repetidor quando hesitação + derrota (antes 1.6)
+  const repeatBoost = randIn(1.4, 1.9);
+
+  // Decaimento de memória (antes 0.92) — ligeiro ruído
+  const decayVar = randIn(0.90, 0.96);
+
+  // Hesitação: ruídos nos limiares
+  const hesitBaseMsFactor = randIn(0.9, 1.1);   // 700 ms → 630..770 ms
+  const hesitMul = randIn(1.15, 1.4);           // 1.25 → 1.15..1.40
+  const switchThresh = Math.max(2, Math.round(randIn(2.5, 3.5))); // tipicamente 3
+  const pathFactor = randIn(0.85, 1.2);         // 800 px → 680..960 px
+
+  // Pivot: leve aumento de peso se existir
+  const pivotBoost = randIn(1.05, 1.25);        // antes *1.2
+
+  const RVAR = {
+    epsLevels: [eps0, eps1, eps2, eps3],
+    epsGlobalScale,
+    epsilonEffective,
+    tieClose,
+    repeatBoost,
+    decayVar,
+    wMult,
+    perfScaleMult,
+    hesitBaseMsFactor,
+    hesitMul,
+    switchThresh,
+    pathFactor,
+    pivotBoost,
+    // útil p/ depuração:
+    stamp: DAILY_KEY,
+  };
 
   // ---------- Constantes gerais ----------
   const TOTAL_ROUNDS = 50;
@@ -46,37 +160,38 @@
   function defaultModel() {
     return {
       roundsSeen: 0,
-      level: 0,                // 0..3
-      epsilon: 0.30,
-      decay: 0.92,             // memória curta p/ reagir rápido
+      level: 0,                        // 0..3
+      epsilon: RVAR.epsLevels[0],      // ε do nível 0 já aleatorizado
+      decay: RVAR.decayVar,            // memória com ruído diário
       counts: { tesoura: 1, pedra: 1, papel: 1 }, // smoothing
       trans1: { tesoura: {tesoura:1,pedra:1,papel:1},
                 pedra:   {tesoura:1,pedra:1,papel:1},
                 papel:   {tesoura:1,pedra:1,papel:1} },
-      trans2: {},              // chave "a|b" -> {tesoura:..,pedra:..,papel:..}
+      trans2: {},                      // chave "a|b" -> {tesoura:..,pedra:..,papel:..}
       postRes: { win:{tesoura:1,pedra:1,papel:1},
                  lose:{tesoura:1,pedra:1,papel:1},
                  draw:{tesoura:1,pedra:1,papel:1}},
       lastMove: null,
       prevMove: null,
-      lastTwoKey: null,        // "a|b"
-      lastResult: null,        // "win"/"lose"/"draw"
-      streak: 0,               // streak do MESMO lance
+      lastTwoKey: null,                // "a|b"
+      lastResult: null,                // "win"/"lose"/"draw"
+      streak: 0,                       // streak do MESMO lance
       hesitation: {
-        avgDecisionMs: 700,    // base inicial
+        avgDecisionMs: Math.round(700 * RVAR.hesitBaseMsFactor), // base diária
         samples: 0,
-        // map do "mais-hoverizado quando hesitante" -> distribuição de clique real
         pivot: {
           tesoura: { tesoura:1, pedra:1, papel:1 },
           pedra:   { tesoura:1, pedra:1, papel:1 },
           papel:   { tesoura:1, pedra:1, papel:1 },
         }
       },
-      // desempenho dos preditores (0..1 aprox) para multiplicative weights
+      // desempenho dos preditores (0..1 aprox)
       perf: {
         freq: 0.5, trans1: 0.5, trans2: 0.5, post: 0.5,
         repeat: 0.5, hover: 0.5, pivot: 0.5, ngram: 0.5
       },
+      // marca do "perfil" do dia (diagnóstico)
+      variantStamp: RVAR.stamp,
     };
   }
 
@@ -175,7 +290,6 @@
   }
 
   // ---------- Sensor de mouse por rodada ----------
-  // Coleta intenção (hover), hesitação (tempo, trocas), jitter do ponteiro.
   let sensor = null;
   function newSensorRound() {
     const now = performance.now();
@@ -196,7 +310,6 @@
 
       btn.addEventListener("pointerenter", (e) => {
         if (!sensor) return;
-        // fecha tempo do hover anterior
         const now = performance.now();
         if (sensor.current && sensor.current !== move) {
           sensor.hoverMs[sensor.current] += (now - sensor.lastAt);
@@ -229,7 +342,6 @@
       });
     });
 
-    // Garantir contagem do último hover quando clica em algum botão
     document.addEventListener("pointerdown", () => {
       if (!sensor) return;
       const now = performance.now();
@@ -280,21 +392,14 @@
   function predRepeat() {
     if (!MODEL.lastMove) return null;
     const d = zeroDist();
-    // Se o jogador ganhou na última, tende a repetir; se perdeu, tende a trocar para o que bateria a IA anterior.
     if (MODEL.lastResult === "win") {
       d[MODEL.lastMove] = 1;
     } else if (MODEL.lastResult === "lose") {
-      // Muitas pessoas trocam para o counter da última IA (que bateu nelas)
-      const counterOfAi = COUNTER[COUNTER[MODEL.lastMove]]; // equivalente ao "o que bateria a IA se ela tivesse batido meu último"
-      // Acima é meio indireto. Melhor: assumimos que a IA anterior foi COUNTER do meu último.
-      // Então eu posso mudar para COUNTER da IA anterior = COUNTER(COUNTER(lastMove)) = lastMove (não muda).
-      // Para dar diversidade, considere repetir OU girar ciclo: last -> COUNTER(last)
       d[MODEL.lastMove] = 0.4;
       d[COUNTER[MODEL.lastMove]] = 0.6;
     } else {
-      d[MODEL.lastMove] = 0.55; // empate → leve tendência a repetir
+      d[MODEL.lastMove] = 0.55;
     }
-    // Se streak >=2, reforça repetição
     if (MODEL.streak >= 2) d[MODEL.lastMove] += 0.5;
     return normDist(d);
   }
@@ -308,20 +413,13 @@
     // ABAB?
     if (last.length >= 4) {
       const a = last[last.length-4], b = last[last.length-3], c = last[last.length-2], d2 = last[last.length-1];
-      if (a && b && c && d2 && a === c && b === d2 && a !== b) {
-        // Padrão ABAB → espera A
-        const next = a;
-        d[next] += 1.0;
-      }
+      if (a && b && c && d2 && a === c && b === d2 && a !== b) d[a] += 1.0;
     }
     // ABCABC?
     if (last.length >= 6) {
       const a = last[last.length-6], b = last[last.length-5], c = last[last.length-4];
       const a2 = last[last.length-3], b2 = last[last.length-2], c2 = last[last.length-1];
-      if (a===a2 && b===b2 && c===c2 && a && b && c) {
-        // Próximo tende a A novamente (ciclo)
-        d[a] += 0.8; // um pouco mais suave
-      }
+      if (a===a2 && b===b2 && c===c2 && a && b && c) d[a] += 0.8;
     }
     const nd = normDist(d);
     if (nd.tesoura === 1/3 && nd.pedra === 1/3 && nd.papel === 1/3) return null;
@@ -339,17 +437,16 @@
     });
   }
 
-  // Hesitação: se alto tempo + muitas trocas, usar o "pivot" histórico
+  // Hesitação com limiares aleatorizados por dia/nome
   function isHesitant(snap, decisionMs) {
     const base = MODEL.hesitation.avgDecisionMs;
-    const slow = decisionMs > Math.max(700, base * 1.25);
-    const manySwitches = snap.switches >= 3;
-    const longPath = snap.path > 800; // pixels
+    const slow = decisionMs > Math.max(700 * RVAR.hesitBaseMsFactor, base * RVAR.hesitMul);
+    const manySwitches = snap.switches >= RVAR.switchThresh;
+    const longPath = snap.path > 800 * RVAR.pathFactor; // pixels
     return slow || manySwitches || longPath;
   }
   function predPivotFromHesitation(snap, hesitant) {
     if (!hesitant) return null;
-    // botão mais “namorado”
     const most = ["tesoura","pedra","papel"].reduce((best, k) =>
       snap.hoverMs[k] > (snap.hoverMs[best] || 0) ? k : best, "tesoura");
     const dist = MODEL.hesitation.pivot[most] || { tesoura:1, pedra:1, papel:1 };
@@ -359,16 +456,21 @@
   // ---------- Combinação de preditores ----------
   function levelWeights(level) {
     // pesos base por nível (soma não precisa dar 1; normalizamos no final)
-    if (level <= 0) return { freq:0.30, hover:0.20, trans1:0, trans2:0, post:0, repeat:0, pivot:0, ngram:0, eps:0.30 };
-    if (level === 1) return { freq:0.25, hover:0.20, trans1:0.30, trans2:0, post:0.15, repeat:0.10, pivot:0.05, ngram:0.05, eps:0.20 };
-    if (level === 2) return { freq:0.20, hover:0.10, trans1:0.25, trans2:0.20, post:0.10, repeat:0.15, pivot:0.10, ngram:0.10, eps:0.12 };
-    return              { freq:0.15, hover:0.08, trans1:0.20, trans2:0.25, post:0.10, repeat:0.20, pivot:0.12, ngram:0.15, eps:0.08 };
+    let base;
+    if (level <= 0) base = { freq:0.30, hover:0.20, trans1:0,    trans2:0,    post:0,    repeat:0,   pivot:0,    ngram:0,    eps:RVAR.epsLevels[0] };
+    else if (level === 1) base = { freq:0.25, hover:0.20, trans1:0.30, trans2:0,    post:0.15, repeat:0.10, pivot:0.05, ngram:0.05, eps:RVAR.epsLevels[1] };
+    else if (level === 2) base = { freq:0.20, hover:0.10, trans1:0.25, trans2:0.20, post:0.10, repeat:0.15, pivot:0.10, ngram:0.10, eps:RVAR.epsLevels[2] };
+    else                  base = { freq:0.15, hover:0.08, trans1:0.20, trans2:0.25, post:0.10, repeat:0.20, pivot:0.12, ngram:0.15, eps:RVAR.epsLevels[3] };
+    // aplica multiplicadores diários por preditor (anti-meta)
+    for (const k of PREDICTORS) base[k] = (base[k] || 0) * RVAR.wMult[k];
+    return base;
   }
 
   function predictorPerfScale(name) {
-    // escala 0.6~1.4 aprox.: quem performa melhor recebe boost
+    // escala 0.6~1.4 aproximada, com leve ruído por preditor
     const p = MODEL.perf[name] ?? 0.5;
-    return 0.6 + 1.6 * Math.max(0, Math.min(1, p));
+    const base = 0.6 + 1.6 * Math.max(0, Math.min(1, p));
+    return base * (RVAR.perfScaleMult[name] || 1);
   }
 
   function predictNextPlayerDist(snap, decisionMs, history) {
@@ -376,10 +478,10 @@
     const L = MODEL.level;
     const baseW = levelWeights(L);
 
-    // Boost dinâmico: se demorou e perdeu na anterior, repetição pesa mais
+    // Boost dinâmico do repetidor quando hesitação + derrota
     let repeatW = baseW.repeat;
-    if (decisionMs > Math.max(700, MODEL.hesitation.avgDecisionMs * 1.25) && MODEL.lastResult === "lose") {
-      repeatW *= 1.6;
+    if (decisionMs > Math.max(700 * RVAR.hesitBaseMsFactor, MODEL.hesitation.avgDecisionMs * RVAR.hesitMul) && MODEL.lastResult === "lose") {
+      repeatW *= RVAR.repeatBoost;
     }
 
     const acc = zeroDist();
@@ -395,7 +497,7 @@
     // Hover-intent ou Pivot (hesitação)
     const hover = predHoverIntent(snap);
     const pivot = predPivotFromHesitation(snap, hesitant);
-    if (pivot) parts.push(["pivot", pivot, baseW.pivot * 1.2]); // ligeiro boost quando existe
+    if (pivot) parts.push(["pivot", pivot, baseW.pivot * RVAR.pivotBoost]);
     else if (hover) parts.push(["hover", hover, baseW.hover]);
 
     // Aplica escalas por desempenho dos preditores
@@ -408,7 +510,7 @@
   }
 
   // ---------- Política da IA ----------
-  function pickAiMove(predPlayerDist, eps) {
+  function pickAiMove(predPlayerDist, baseEps) {
     // Score de cada resposta = prob do lance derrotável
     const aiScore = {
       pedra:   predPlayerDist.tesoura, // pedra vence tesoura
@@ -416,13 +518,14 @@
       tesoura: predPlayerDist.papel,   // tesoura vence papel
     };
 
+    const eps = RVAR.epsilonEffective(baseEps);
     if (Math.random() < eps) {
-      // exploração
+      // exploração (aleatória real do navegador)
       return ORDER[Math.floor(Math.random() * ORDER.length)];
     }
     // exploração “suave”: se scores muito próximos, amostra proporcional
     const max = Math.max(aiScore.pedra, aiScore.papel, aiScore.tesoura);
-    const close = Object.values(aiScore).every(v => Math.abs(v - max) < 0.05);
+    const close = Object.values(aiScore).every(v => Math.abs(v - max) < RVAR.tieClose);
     if (close) {
       const s = aiScore.pedra + aiScore.papel + aiScore.tesoura || 1;
       const r = Math.random() * s;
@@ -438,15 +541,16 @@
   function updateProgression() {
     // Atualiza nível/epsilon conforme dados acumulados
     const r = MODEL.roundsSeen;
-    let level = 0, eps = 0.30;
-    if (r >= 5)  { level = 1; eps = 0.20; }
-    if (r >= 15) { level = 2; eps = 0.12; }
+    let level = 0;
+    if (r >= 5)  level = 1;
+    if (r >= 15) level = 2;
+
     const totalPlays = (TOTALS.wins + TOTALS.losses + TOTALS.draws) || 1;
     const wr = TOTALS.wins / totalPlays;
-    if (r >= 40 || wr > 0.60) { level = 3; eps = 0.08; }
+    if (r >= 40 || wr > 0.60) level = 3;
 
     MODEL.level = level;
-    MODEL.epsilon = eps;
+    MODEL.epsilon = RVAR.epsLevels[level]; // ε do nível (já aleatorizado p/ o dia+nome)
   }
 
   // ---------- Atualização do modelo após cada jogada ----------
@@ -474,7 +578,6 @@
 
     if (MODEL.lastTwoKey) {
       if (!MODEL.trans2[MODEL.lastTwoKey]) MODEL.trans2[MODEL.lastTwoKey] = { tesoura:1,pedra:1,papel:1 };
-      // decair só esse bucket
       decayCounts(MODEL.trans2[MODEL.lastTwoKey], d);
       MODEL.trans2[MODEL.lastTwoKey][player] += 1;
     }
@@ -488,7 +591,7 @@
     if (MODEL.lastMove && MODEL.lastMove === player) MODEL.streak += 1;
     else MODEL.streak = 1;
 
-    // Hesitação: média móvel de tempo
+    // Hesitação: média móvel de tempo (β=0.1)
     const hs = MODEL.hesitation;
     hs.samples += 1;
     hs.avgDecisionMs = Math.round(0.9 * hs.avgDecisionMs + 0.1 * decisionMs);
@@ -513,7 +616,6 @@
     updateProgression();
 
     // Ajusta pesos dos preditores conforme o quanto apostaram no lance real
-    // usedDists: { name -> dist }
     const eta = 0.15; // taxa de aprendizagem
     for (const [name, dist] of Object.entries(usedDists || {})) {
       const reward = dist ? (dist[player] || 0) : 0;
@@ -527,7 +629,6 @@
   function pushHistory(entry) {
     const history = loadLS(LS_KEYS.HISTORY, []);
     history.push(entry);
-    // mantém até ~300
     if (history.length > 300) history.splice(0, history.length - 300);
     saveLS(LS_KEYS.HISTORY, history);
   }
@@ -560,19 +661,15 @@
     closeGoHomeConfirm();
   }
 
-    // Centralize final overlay action buttons with spacing
+  // Centraliza botões do overlay final e garante espaçamento
   function centerFinalActionButtons() {
-    // Find the row that contains the close button; this is the container for action buttons
     const row = finalOverlay.querySelector('#closeFinalBtn')?.parentElement;
     if (!row || !row.classList.contains('flex')) return;
-    // Remove any conflicting justification classes
     row.classList.remove('justify-end', 'justify-between', 'justify-start');
-    // Add center justification and ensure spacing between buttons
     row.classList.add('justify-center');
-    if (!row.classList.contains('gap-2')) {
-      row.classList.add('gap-2');
-    }
+    if (!row.classList.contains('gap-2')) row.classList.add('gap-2');
   }
+
   function endIfCompleted() {
     if (roundsPlayed < TOTAL_ROUNDS) return;
     moveButtons().forEach(b => b.disabled = true);
@@ -593,7 +690,6 @@
   }
   function closeResetConfirm() { resetConfirmStep = 0; confirmBox.classList.add("hidden"); }
   function doResetSession() {
-    // Reinicia SOMENTE a sessão; aprendizado permanece (em MODEL no LS)
     roundsPlayed = 0; wins = 0; losses = 0; draws = 0;
     updateScoreUI(); updateProgressUI();
     moveButtons().forEach(b => b.disabled = false);
@@ -716,7 +812,7 @@
           return main;
         })();
 
-        // Escolha da IA (ε-greedy)
+        // Escolha da IA (ε-greedy com ε efetivo variado por dia+nome)
         const ai = pickAiMove(predDist, MODEL.epsilon);
 
         const player = btn.getAttribute("data-move");
@@ -743,7 +839,8 @@
           decisionMs,
           hoverMs: snap.hoverMs,
           switches: snap.switches,
-          path: Math.round(snap.path)
+          path: Math.round(snap.path),
+          variant: RVAR.stamp, // ajuda a auditar o "perfil do dia"
         });
         updateTotals(res);
         updateModelAfterRound(player, ai, res, snap, decisionMs, usedDists);
